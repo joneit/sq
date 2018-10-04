@@ -1,56 +1,44 @@
+'use strict';
+
 window.onload = function() {
     const GW = 4, // Gutter Width
         HW = GW / 2, // Half gutter Width
+        MIN_PANE = 32, // MINimum window PANE size
         container = document.querySelector('.content-container'),
         propset = {
-            false: { mouse: 'clientY', offset: 'offsetY', edge: 'top', measure: 'height', otherEdge: 'bottom' },
-            true: { mouse: 'clientX', offset: 'offsetX', edge: 'left', measure: 'width', otherEdge: 'right' }
-        },
-        adjuster = {
-            left: 'clientX', right: 'clientX',
-            top: 'clientY', bottom: 'clientY',
+            false: { COORD: 'clientY', EDGE: 'top', SPAN: 'height' },
+            true: { COORD: 'clientX', EDGE: 'left', SPAN: 'width' }
         };
-
-    container.addEventListener('contextmenu', function(e) {
-        if (e.target.classList.contains('content-box')) {
-            e.preventDefault();
-            splitBox(e);
-        }
-    });
-
-    function splitBox(e) {
-        const el = e.target,
-            verticality = e.ctrlKey,
-            prop = propset[verticality],
-            rect = el.getBoundingClientRect(),
-            newEl = el.cloneNode(true),
-            style = window.getComputedStyle(el),
-            m = e[prop.offset];
-
-        el.style[prop.measure] = m - HW + 'px';
-        newEl.style[prop.measure] = rect[prop.measure] - m - HW + 'px';
-        newEl.style[prop.edge] = parseInt(style[prop.edge]) + m + HW + 'px';
-
-        el.parentElement.insertBefore(newEl, el.nextElementSibling);
-
-        edges = findEdges(container.children, e);
-    }
 
     var edges;
 
+    container.addEventListener('contextmenu', function(e) {
+        for (var el = e.target; el !== document.body; el = el.parentElement) {
+            if (el.classList.contains('content-box')) {
+                e.preventDefault();
+                if (splitBox(e, el)) {
+                    edges = findEdges(container.children, e, container);
+                }
+                break;
+            }
+        }
+    });
 
     // light up edges on mouse down if not already lit AND record adjustments to mouse position
     container.addEventListener('mousedown', function(e) {
         if (e.target === container) {
             edges = edges || findEdges(container.children, e);
 
-            Object.keys(adjuster).forEach(function(key) {
-                if (edges[key]) {
-                    edges[key].adj = edges[key].el.getBoundingClientRect()[key] - e[adjuster[key]];
-                }
+            // `containerRect` is defined on mouseDown and undefined on mouseUp.
+            // When defined during mouseMove, moves edges[*]; else defines a new `edges`.
+            // It is itself non-enumerable — because it is not a edge.
+            Object.defineProperty(edges, 'containerRect', {
+                enumerable: false, // !!!
+                configurable: true,
+                value: container.getBoundingClientRect()
             });
 
-            edges.containerRect = container.getBoundingClientRect();
+            document.body.style.userSelect = 'none';
         }
     });
 
@@ -59,21 +47,33 @@ window.onload = function() {
         const rect = edges && edges.containerRect;
 
         if (rect) {
-            // var key = true;
-            Object.keys(propset).forEach(function(key) {
-                const { mouse, edge: edgeName, otherEdge: otherEdgeName, measure} = propset[key];
-                var edge;
+            const tooSmall = Object.keys(edges).find(function(barName) {
+                var edge = edges[barName];
+                if (edge) {
+                    const mouseCoord = e[edge.MOUSE_COORD],
+                        containerCoord = rect[edge.COORD];
 
-                if ((edge = edges[edgeName])) {
-                    const newEdge = e[mouse] + edge.adj;
-                    edge.el.style[measure] = (edge.measure += edge.coord - newEdge) + 'px';
-                    edge.el.style[edgeName] = (edge.coord = newEdge) - rect[edgeName] - 1 + 'px';
-                }
+                    var span, style = edge.style = {};
+                    if (edge.leader) {
+                        span = mouseCoord + edge.delta - edge.coord;
+                    } else {
+                        const newEdge = mouseCoord + edge.delta;
+                        span = (edge.span += edge.coord - newEdge);
+                        style[edge.COORD] = (edge.coord = newEdge) - containerCoord - 1 + 'px';
+                    }
+                    style[edge.SPAN] = span + 'px';
 
-                if ((edge = edges[otherEdgeName])) {
-                    edge.el.style[measure] = e[mouse] + edge.adj - edge.coord + 'px';
+                    return span < MIN_PANE;
                 }
             });
+            if (!tooSmall) {
+                Object.keys(edges).forEach(function(barName) {
+                    var edge = edges[barName];
+                    if (edge) {
+                        Object.assign(edge.el.style, edge.style);
+                    }
+                });
+            }
         } else {
             edges = findEdges(container.children, e);
         }
@@ -82,13 +82,39 @@ window.onload = function() {
     document.addEventListener('mouseup', function(e) {
         if (edges) {
             delete edges.containerRect;
+            document.body.style.userSelect = null;
         }
     });
 
-    function findEdges(els, e) {
-        const hovering = e.target === container,
+    function splitBox(e, el) {
+        const
+            style = window.getComputedStyle(el || (el = e.target)),
+            rect = el.getBoundingClientRect(),
+            newEl = el.cloneNode(true),
+            verticality = e.ctrlKey,
+            prop = propset[verticality],
+            m = e[prop.COORD] - rect[prop.EDGE];
+
+        if (rect[prop.SPAN] <= MIN_PANE + GW + MIN_PANE) {
+            el.style.cursor = 'not-allowed';
+            setTimeout(function() { el.style.cursor = 'auto'; }, 650);
+        } else {
+            el.style[prop.SPAN] = m - HW + 'px';
+            newEl.style[prop.SPAN] = rect[prop.SPAN] - m - HW + 'px';
+            newEl.style[prop.EDGE] = parseInt(style[prop.EDGE]) + m + HW + 'px';
+
+            el.parentElement.insertBefore(newEl, el.nextElementSibling);
+
+            return true;
+        }
+    }
+
+    function findEdges(els, e, target) {
+        const hovering = (target || e.target) === container,
             { clientX: x, clientY: y } = e,
-            hot = {};
+            hot = [];
+
+        var hDelta, vDelta;
 
         Array.prototype.forEach.call(els, function(el) {
             const { left, right, top, bottom, width, height } = el.getBoundingClientRect(),
@@ -101,23 +127,58 @@ window.onload = function() {
 
             toggleEdges(test, el);
 
-            hot.left = hot.left || test.left && { el, coord: left, measure: width };
-            hot.right = hot.right || test.right && { el, coord: left };
-            hot.top = hot.top || test.top && { el, coord: top, measure: height };
-            hot.bottom = hot.bottom || test.bottom && { el, coord: top };
+            // all detected edges use the same `delta` for their
+            // respective types so they all end up aligned
+
+            if (test.right || test.left) {
+                if (vDelta === undefined) {
+                    vDelta = right - x;
+                }
+                hot.push({
+                    el,
+                    // type: 'vert',
+                    leader: !test.left,
+                    coord: left,
+                    span: width,
+                    delta: test.right ? vDelta : GW + vDelta,
+                    COORD: 'left',
+                    OPPOSITE: 'right',
+                    SPAN: 'width',
+                    MOUSE_COORD: 'clientX'
+                });
+            }
+
+            if (test.bottom || test.top) {
+                if (hDelta === undefined) {
+                    hDelta = bottom - y;
+                }
+                hot.push({
+                    el,
+                    // type: 'horz',
+                    leader: !test.top,
+                    coord: top,
+                    span: height,
+                    delta: test.bottom ? hDelta : GW + hDelta,
+                    COORD: 'top',
+                    OPPOSITE: 'bottom',
+                    SPAN: 'height',
+                    MOUSE_COORD: 'clientY'
+                });
+            }
         });
 
-        container.style.cursor = hot.left && hot.top ? 'move' :
-            hot.left ? 'col-resize' :
-                hot.top ? 'row-resize' :
+        container.style.cursor = hDelta !== undefined && vDelta !== undefined ? 'move' :
+            hDelta !== undefined ? 'row-resize' :
+                vDelta !== undefined ? 'col-resize' :
                     'auto';
 
         return hot;
     }
 
     function toggleEdges(test, el) {
-        Object.keys(test).forEach(function(key) {
+        return Object.keys(test).reduce(function(added, key) {
             el.classList.toggle(key + '-hover', test[key]);
-        });
+            return added || test[key];
+        }, false);
     }
 };

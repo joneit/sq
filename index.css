@@ -1,0 +1,41 @@
+.content-box, .content-container {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px solid grey;
+    width: 500px;
+    height: 500px;
+    top: 20px;
+    left: 200px;
+}
+.content-box {
+    background-color: lightblue;
+    top: -1px;
+    left: -1px;
+    opacity: .33;
+    font: 8pt serif;
+    /*text-align: justify;*/
+    overflow-y: scroll;
+    padding: 5px;
+}
+.content-box > p {
+    margin: 0 0 .5em 0;
+    text-indent: 2em;
+}
+.left-hover {
+    border-left-color: red;
+}
+.right-hover {
+    border-right-color: red;
+}
+.top-hover {
+    border-top-color: red;
+}
+.bottom-hover {
+    border-bottom-color: red;
+}
+ul.instructions {
+    width:170px;
+    font: 8pt verdana;
+    padding-left: 1.5em;
+}
+li { margin-top: 1em }
